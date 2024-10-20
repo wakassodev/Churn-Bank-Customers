@@ -7,6 +7,10 @@ from openai import OpenAI
 import utils as ut
 from scipy import stats
 
+
+
+
+
 client = OpenAI(base_url='https://api.groq.com/openai/v1',
                 api_key=os.environ.get("GROQ_API_KEY"))
 
@@ -290,3 +294,8 @@ if selected_customer_option:
   st.subheader("Personalized Email")
 
   st.markdown(email)
+  
+if __name__ == "__main__":
+    if "VERCEL" in os.environ:
+        st.set_page_config(page_title="Customer Churn Prediction")
+    st.run()
