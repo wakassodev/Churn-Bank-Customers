@@ -65,7 +65,7 @@ def make_prediction(input_df, input_dict):
     st.markdown("### Customer Percentiles")
 
     # Calculate percentiles for the input data
-    df = pd.read_csv("https://url-to-your-hosted-churn-csv-file.com/churn.csv")
+    df = pd.read_csv("https://github.com/wakassodev/Churn-Bank-Customers/blob/main/churn.csv")
     percentiles = {
         'NumOfProducts': stats.percentileofscore(df['NumOfProducts'], input_dict['NumOfProducts']),
         'Balance': stats.percentileofscore(df['Balance'], input_dict['Balance']),
