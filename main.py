@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-import pickle
 import numpy as np
 import os
 from openai import OpenAI
 import utils as ut
 from scipy import stats
+import requests
 
 
 
@@ -13,31 +13,6 @@ from scipy import stats
 
 client = OpenAI(base_url='https://api.groq.com/openai/v1',
                 api_key=os.environ.get("GROQ_API_KEY"))
-
-
-def load_model(filename):
-  with open(filename, "rb") as file:
-    return pickle.load(file)
-
-
-xgboost_model = load_model("xgb_model.pkl")
-
-naive_bayes_model = load_model("nb_model.pkl")
-
-random_forest_model = load_model("rf_model.pkl")
-
-decision_tree_model = load_model("dt_model.pkl")
-
-svm_model = load_model("svm_model.pkl")
-
-knn_model = load_model("knn_model.pkl")
-
-voting_classifier_model = load_model("voting_clf.pkl")
-
-xgboost_SMOTE_model = load_model("xgboost_SMOTE_model.pkl")
-
-xgboost_featureEngineered_model = load_model(
-    "xgboost_featureEngineered_model.pkl")
 
 
 def prepare_input(credit_score, location, gender, age, tenure, balance,
@@ -65,47 +40,47 @@ def prepare_input(credit_score, location, gender, age, tenure, balance,
 
 
 def make_prediction(input_df, input_dict):
+    # Replace local prediction with API call
+    api_url = "https://churn-ml-models-c0o8.onrender.com/predict"  # Replace with your actual API URL
+    response = requests.post(api_url, json=input_dict.to_dict())
+    if response.status_code == 200:
+        result = response.json()
+        probabilities = result['probabilities']
+        avg_probability = result['avg_probability']
+    else:
+        st.error("Error calling prediction API")
+        return None
 
-  probabilities = {
-      'XGBoost': xgboost_model.predict_proba(input_df)[0][1],
-      'Random Dorest': random_forest_model.predict_proba(input_df)[0][1],
-      'K-Nearest Neighbors': knn_model.predict_proba(input_df)[0][1],
-  }
+    col1, col2 = st.columns(2)
 
-  avg_probability = np.mean(list(probabilities.values()))
+    with col1:
+        fig = ut.create_gauge_chart(avg_probability)
+        st.plotly_chart(fig, use_container_width=True)
+        st.write(f"The customer has a {avg_probability:.2%} probability of churning.")
 
-  col1, col2 = st.columns(2)
+    with col2:
+        fig_probs = ut.create_model_probability_chart(probabilities)
+        st.plotly_chart(fig_probs, use_container_width=True)
 
-  with col1:
-    fig = ut.create_gauge_chart(avg_probability)
-    st.plotly_chart(fig, use_container_width=True)
-    st.write(
-        f"The customer has a {avg_probability:.2%} probability of churning.")
+    st.markdown("### Customer Percentiles")
 
-  with col2:
-    fig_probs = ut.create_model_probability_chart(probabilities)
-    st.plotly_chart(fig_probs, use_container_width=True)
+    # Calculate percentiles for the input data
+    df = pd.read_csv("https://url-to-your-hosted-churn-csv-file.com/churn.csv")
+    percentiles = {
+        'NumOfProducts': stats.percentileofscore(df['NumOfProducts'], input_dict['NumOfProducts']),
+        'Balance': stats.percentileofscore(df['Balance'], input_dict['Balance']),
+        'EstimatedSalary': stats.percentileofscore(df['EstimatedSalary'], input_dict['EstimatedSalary']),
+        'Tenure': stats.percentileofscore(df['Tenure'], input_dict['Tenure']),
+        'CreditScore': stats.percentileofscore(df['CreditScore'], input_dict['CreditScore'])
+    }
 
-  st.markdown("### Customer Percentiles")
+    # Convert percentiles to range [0, 1] for the chart
+    percentiles = {k: v / 100 for k, v in percentiles.items()}
 
-  # Calculate percentiles for the input data
-  percentiles = {
-    'NumOfProducts': stats.percentileofscore(df['NumOfProducts'], input_dict['NumOfProducts']),
-    'Balance': stats.percentileofscore(df['Balance'], input_dict['Balance']),
-    'EstimatedSalary': stats.percentileofscore(df['EstimatedSalary'], input_dict['EstimatedSalary']),
-    'Tenure': stats.percentileofscore(df['Tenure'], input_dict['Tenure']),
-    'CreditScore': stats.percentileofscore(df['CreditScore'], input_dict['CreditScore'])
-  }
+    fig_percentiles = ut.create_model_percentiles_chart(percentiles)
+    st.plotly_chart(fig_percentiles, use_container_width=True, key="percentiles_chart")
 
-  # Convert percentiles to range [0, 1] for the chart
-  percentiles = {k: v / 100 for k, v in percentiles.items()}
-
-  fig_percentiles = ut.create_model_percentiles_chart(percentiles)
-  st.plotly_chart(fig_percentiles, use_container_width=True, key="percentiles_chart")
-
-
-
-  return avg_probability
+    return avg_probability
 
 
 def explain_prediction(probability, input_dict, surname):
@@ -196,105 +171,104 @@ def generate_email(probability, input_dict, explanation, surname):
   return raw_response.choices[0].message.content
 
 
-st.title("Customer Churn Prediction")
+def run():
+    st.title("Customer Churn Prediction")
 
-df = pd.read_csv("churn.csv")
+    # Load data from remote CSV
+    df = pd.read_csv("https://url-to-your-hosted-churn-csv-file.com/churn.csv")
 
-customers = [
-    f"{row['CustomerId']} - {row['Surname']}" for _, row in df.iterrows()
-]
+    customers = [
+        f"{row['CustomerId']} - {row['Surname']}" for _, row in df.iterrows()
+    ]
 
-selected_customer_option = st.selectbox("Select a customer", customers)
+    selected_customer_option = st.selectbox("Select a customer", customers)
 
-if selected_customer_option:
+    if selected_customer_option:
 
-  selected_customer_id = int(selected_customer_option.split(" - ")[0])
+        selected_customer_id = int(selected_customer_option.split(" - ")[0])
 
-  print("Selected customer ID:", selected_customer_id)
+        print("Selected customer ID:", selected_customer_id)
 
-  selected_surname = selected_customer_option.split(" - ")[1]
+        selected_surname = selected_customer_option.split(" - ")[1]
 
-  print("Surname", selected_surname)
+        print("Surname", selected_surname)
 
-  selected_customer = df.loc[df['CustomerId'] == selected_customer_id].iloc[0]
+        selected_customer = df.loc[df['CustomerId'] == selected_customer_id].iloc[0]
 
-  print(selected_customer)
+        print(selected_customer)
 
-  col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-  with col1:
+        with col1:
 
-    credit_score = st.number_input("Credit Score",
-                                   min_value=300,
-                                   max_value=850,
-                                   value=int(selected_customer["CreditScore"]))
+            credit_score = st.number_input("Credit Score",
+                                           min_value=300,
+                                           max_value=850,
+                                           value=int(selected_customer["CreditScore"]))
 
-    location = st.selectbox("Location", ["Spain", "France", "Germany"],
-                            index=["Spain", "France", "Germany"
-                                   ].index(selected_customer['Geography']))
+            location = st.selectbox("Location", ["Spain", "France", "Germany"],
+                                    index=["Spain", "France", "Germany"
+                                           ].index(selected_customer['Geography']))
 
-    gender = st.radio("Gender", ["Male", "Female"],
-                      index=0 if selected_customer["Gender"] == "Male" else 1)
+            gender = st.radio("Gender", ["Male", "Female"],
+                              index=0 if selected_customer["Gender"] == "Male" else 1)
 
-    age = st.number_input("Age",
-                          min_value=0,
-                          max_value=60,
-                          value=int(selected_customer['Age']))
+            age = st.number_input("Age",
+                                  min_value=0,
+                                  max_value=60,
+                                  value=int(selected_customer['Age']))
 
-    tenure = st.number_input("Tenure (years)",
-                             min_value=0,
-                             max_value=50,
-                             value=int(selected_customer['Tenure']))
+            tenure = st.number_input("Tenure (years)",
+                                     min_value=0,
+                                     max_value=50,
+                                     value=int(selected_customer['Tenure']))
 
-  with col2:
+        with col2:
 
-    balance = st.number_input("Balance",
-                              min_value=0.0,
-                              value=float(selected_customer['Balance']))
+            balance = st.number_input("Balance",
+                                      min_value=0.0,
+                                      value=float(selected_customer['Balance']))
 
-    num_products = st.number_input("Number of Products",
-                                   min_value=0,
-                                   max_value=10,
-                                   value=int(
-                                       selected_customer['NumOfProducts']))
+            num_products = st.number_input("Number of Products",
+                                           min_value=0,
+                                           max_value=10,
+                                           value=int(
+                                               selected_customer['NumOfProducts']))
 
-    has_credit_card = st.checkbox("Has Credit Card",
-                                  value=bool(selected_customer['HasCrCard']))
+            has_credit_card = st.checkbox("Has Credit Card",
+                                           value=bool(selected_customer['HasCrCard']))
 
-    is_active_member = st.checkbox("Is Active Member",
-                                   value=bool(
-                                       selected_customer['IsActiveMember']))
+            is_active_member = st.checkbox("Is Active Member",
+                                           value=bool(
+                                               selected_customer['IsActiveMember']))
 
-    estimated_salary = st.number_input(
-        "Estimated Salary",
-        min_value=0.0,
-        value=float(selected_customer['EstimatedSalary']))
+            estimated_salary = st.number_input(
+                "Estimated Salary",
+                min_value=0.0,
+                value=float(selected_customer['EstimatedSalary']))
 
-  input_df, input_dict = prepare_input(credit_score, location, gender, age,
-                                       tenure, balance, num_products,
-                                       has_credit_card, is_active_member,
-                                       estimated_salary)
+        input_df, input_dict = prepare_input(credit_score, location, gender, age,
+                                             tenure, balance, num_products,
+                                             has_credit_card, is_active_member,
+                                             estimated_salary)
 
-  avg_probability = make_prediction(input_df, input_dict)
+        avg_probability = make_prediction(input_df, input_dict)
 
-  explanation = explain_prediction(avg_probability, input_dict,
+        if avg_probability is not None:
+            explanation = explain_prediction(avg_probability, input_dict,
+                                             selected_customer['Surname'])
+
+            st.markdown("---")
+            st.subheader("Explanation of Prediction")
+            st.markdown(explanation)
+
+            email = generate_email(avg_probability, input_dict, explanation,
                                    selected_customer['Surname'])
 
-  st.markdown("---")
+            st.markdown("---")
+            st.subheader("Personalized Email")
+            st.markdown(email)
 
-  st.subheader("Explaination of Prediction")
-
-  st.markdown(explanation)
-
-  email = generate_email(avg_probability, input_dict, explanation,
-                         selected_customer['Surname'])
-
-  st.markdown("---")
-
-  st.subheader("Personalized Email")
-
-  st.markdown(email)
-  
 if __name__ == "__main__":
     if "VERCEL" in os.environ:
         st.set_page_config(page_title="Customer Churn Prediction")
